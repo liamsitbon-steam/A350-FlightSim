@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import WeatherSystem from "./weather.js";
 import WeatherUI from "./weatherUI.js";
+import createNewYorkWorld from "./newYorkWorld.js";
 
 const canvas = document.querySelector("#sim-canvas");
 const loading = document.querySelector("#loading");
@@ -94,9 +95,8 @@ const renderProbe = {
 };
 
 setupLighting();
-createWorld();
+createNewYorkWorld(scene);
 createRunway();
-createAirportDetails();
 createMissionRings();
 createAircraftShadow();
 createProceduralA350();
@@ -121,75 +121,16 @@ function setupLighting() {
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xfff2cd, 2.8);
-  sun.position.set(-680, 980, -340);
+  sun.position.set(-2000, 2000, -2000);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -900;
-  sun.shadow.camera.right = 900;
-  sun.shadow.camera.top = 900;
-  sun.shadow.camera.bottom = -900;
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.camera.left = -4000;
+  sun.shadow.camera.right = 4000;
+  sun.shadow.camera.top = 4000;
+  sun.shadow.camera.bottom = -4000;
   sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 2400;
+  sun.shadow.camera.far = 5000;
   scene.add(sun);
-}
-
-function createWorld() {
-  const grassMaterial = new THREE.MeshStandardMaterial({
-    color: 0x4f8a50,
-    roughness: 0.88,
-    metalness: 0.02,
-  });
-  const field = new THREE.Mesh(new THREE.PlaneGeometry(9200, 9200, 64, 64), grassMaterial);
-  field.rotation.x = -Math.PI / 2;
-  field.receiveShadow = true;
-  scene.add(field);
-
-  const waterMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2d8ebf,
-    roughness: 0.36,
-    metalness: 0.06,
-    transparent: true,
-    opacity: 0.82,
-  });
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(9200, 3000), waterMaterial);
-  water.position.set(0, -0.15, 2950);
-  water.rotation.x = -Math.PI / 2;
-  scene.add(water);
-
-  const mountainMaterial = new THREE.MeshStandardMaterial({
-    color: 0x5d7358,
-    roughness: 0.96,
-  });
-  for (let i = 0; i < 28; i += 1) {
-    const height = 130 + Math.random() * 330;
-    const radius = 180 + Math.random() * 380;
-    const mountain = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 5 + (i % 3), 1), mountainMaterial);
-    mountain.position.set(-4200 + i * 320, height / 2 - 2, 1650 + Math.sin(i * 1.7) * 480);
-    mountain.rotation.y = Math.random() * Math.PI;
-    mountain.castShadow = true;
-    mountain.receiveShadow = true;
-    scene.add(mountain);
-  }
-
-  const cloudMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.7,
-    transparent: true,
-    opacity: 0.78,
-  });
-  for (let i = 0; i < 34; i += 1) {
-    const cloud = new THREE.Group();
-    const puffCount = 3 + (i % 4);
-    for (let j = 0; j < puffCount; j += 1) {
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(24 + Math.random() * 28, 16, 12), cloudMaterial);
-      puff.position.set(j * 34, Math.random() * 8, Math.random() * 12);
-      puff.scale.set(1.6, 0.45 + Math.random() * 0.22, 0.8);
-      cloud.add(puff);
-    }
-    cloud.position.set(-3600 + Math.random() * 7200, 460 + Math.random() * 520, -2400 + Math.random() * 5200);
-    cloud.rotation.y = Math.random() * Math.PI;
-    scene.add(cloud);
-  }
 }
 
 function createRunway() {
@@ -252,47 +193,6 @@ function createRunway() {
   }
 }
 
-function createAirportDetails() {
-  const terminalMat = new THREE.MeshStandardMaterial({ color: 0x9fafb9, roughness: 0.42, metalness: 0.2 });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x7cc7d9,
-    roughness: 0.18,
-    metalness: 0.15,
-    transparent: true,
-    opacity: 0.62,
-  });
-  const towerMat = new THREE.MeshStandardMaterial({ color: 0xf1ead6, roughness: 0.7 });
-
-  for (let i = 0; i < 4; i += 1) {
-    const terminal = new THREE.Mesh(new THREE.BoxGeometry(180, 34 + i * 3, 64), terminalMat);
-    terminal.position.set(-420 - i * 185, terminal.geometry.parameters.height / 2, 760 + (i % 2) * 86);
-    terminal.castShadow = true;
-    terminal.receiveShadow = true;
-    scene.add(terminal);
-
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(172, 18, 3), glassMat);
-    glass.position.set(terminal.position.x, terminal.position.y + 4, terminal.position.z - 33);
-    scene.add(glass);
-  }
-
-  const towerBase = new THREE.Mesh(new THREE.CylinderGeometry(18, 24, 132, 10), towerMat);
-  towerBase.position.set(360, 66, 680);
-  towerBase.castShadow = true;
-  scene.add(towerBase);
-
-  const towerCab = new THREE.Mesh(new THREE.CylinderGeometry(44, 36, 26, 10), glassMat);
-  towerCab.position.set(360, 146, 680);
-  towerCab.castShadow = true;
-  scene.add(towerCab);
-
-  const taxiMat = new THREE.MeshStandardMaterial({ color: 0x2c333b, roughness: 0.74 });
-  const taxi = new THREE.Mesh(new THREE.BoxGeometry(36, 0.12, 860), taxiMat);
-  taxi.position.set(-165, 0.04, 650);
-  taxi.rotation.y = Math.PI / 2;
-  taxi.receiveShadow = true;
-  scene.add(taxi);
-}
-
 function createMissionRings() {
   const ringGeometry = new THREE.TorusGeometry(34, 2.2, 12, 72);
   const activeMaterial = new THREE.MeshStandardMaterial({
@@ -318,12 +218,13 @@ function createMissionRings() {
     opacity: 0.5,
   });
 
+  // NYC mission route - flying around Manhattan landmarks
   const route = [
-    [0, 34, -780],
-    [0, 78, -240],
-    [0, 128, 420],
-    [220, 162, 1040],
-    [-220, 192, 1680],
+    [0, 300, -2000],        // Battery Park
+    [-400, 350, -1000],     // Empire State Building
+    [200, 400, -3500],      // One World Trade Center
+    [-800, 300, -500],      // Chrysler Building
+    [600, 450, 1500],       // Central Park Tower
   ];
 
   route.forEach((position, index) => {
