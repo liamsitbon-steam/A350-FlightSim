@@ -115,6 +115,60 @@ input {
   border-radius: 8px;
 }
 
+.hud-right {
+  top: 112px;
+  right: 18px;
+  display: grid;
+  gap: 14px;
+  width: 100px;
+  padding: 14px 12px;
+  border-radius: 8px;
+}
+
+.indicator-block {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.indicator-label {
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.indicator-block strong {
+  min-width: 56px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+#bank-angle {
+  background: rgba(110, 231, 249, 0.1);
+  color: var(--cyan);
+}
+
+#stall-indicator {
+  background: rgba(142, 224, 124, 0.1);
+  color: var(--green);
+}
+
+#stall-indicator.warn {
+  background: rgba(255, 200, 87, 0.15);
+  color: var(--amber);
+}
+
+#stall-indicator.critical {
+  background: rgba(255, 123, 114, 0.15);
+  color: var(--red);
+}
+
 .control {
   display: grid;
   gap: 8px;
@@ -167,15 +221,25 @@ input:focus-visible {
 }
 
 .flight-pad {
-  right: 18px;
-  top: 112px;
   display: grid;
-  grid-template-columns: repeat(3, 52px);
-  grid-template-rows: repeat(3, 52px);
   gap: 8px;
   padding: 12px;
   border-radius: 8px;
   touch-action: none;
+}
+
+.flight-pad.camera-pad {
+  right: 18px;
+  bottom: 160px;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(2, 52px);
+}
+
+.flight-pad:not(.camera-pad) {
+  right: 18px;
+  top: 112px;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(3, 52px);
 }
 
 .pad-button {
@@ -191,6 +255,8 @@ input:focus-visible {
   cursor: pointer;
   touch-action: none;
   user-select: none;
+  font-size: 16px;
+  font-weight: bold;
 }
 
 .pad-button:hover,
@@ -232,6 +298,36 @@ input:focus-visible {
 .pad-yaw-right {
   grid-column: 3;
   grid-row: 3;
+}
+
+.cam-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.cam-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.cam-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.cam-down {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.cam-zoom-in {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cam-zoom-out {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .pad-icon {
@@ -516,16 +612,38 @@ input:focus-visible {
     gap: 10px;
   }
 
+  .hud-right {
+    top: auto;
+    right: 10px;
+    bottom: 160px;
+    width: 90px;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .indicator-block strong {
+    font-size: 14px;
+  }
+
   .control-throttle input[type="range"] {
     height: 104px;
   }
 
-  .flight-pad {
+  .flight-pad:not(.camera-pad) {
     top: 178px;
     right: 10px;
     bottom: auto;
     grid-template-columns: repeat(3, 46px);
     grid-template-rows: repeat(3, 46px);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .flight-pad.camera-pad {
+    right: 10px;
+    bottom: 10px;
+    grid-template-columns: repeat(3, 46px);
+    grid-template-rows: repeat(2, 46px);
     gap: 6px;
     padding: 8px;
   }

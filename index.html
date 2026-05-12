@@ -79,6 +79,27 @@
         </button>
       </section>
 
+      <section class="hud flight-pad camera-pad" aria-label="Camera controls">
+        <button class="pad-button cam-up" type="button" data-control="camera-up" aria-label="Camera up">
+          <span class="pad-icon icon-up" aria-hidden="true"></span>
+        </button>
+        <button class="pad-button cam-left" type="button" data-control="camera-left" aria-label="Camera left">
+          <span class="pad-icon icon-left" aria-hidden="true"></span>
+        </button>
+        <button class="pad-button cam-right" type="button" data-control="camera-right" aria-label="Camera right">
+          <span class="pad-icon icon-right" aria-hidden="true"></span>
+        </button>
+        <button class="pad-button cam-down" type="button" data-control="camera-down" aria-label="Camera down">
+          <span class="pad-icon icon-down" aria-hidden="true"></span>
+        </button>
+        <button class="pad-button cam-zoom-in" type="button" data-control="camera-zoom-in" aria-label="Zoom in">
+          <span class="pad-icon" aria-hidden="true">+</span>
+        </button>
+        <button class="pad-button cam-zoom-out" type="button" data-control="camera-zoom-out" aria-label="Zoom out">
+          <span class="pad-icon" aria-hidden="true">−</span>
+        </button>
+      </section>
+
       <section class="hud hud-bottom" aria-label="Aircraft status">
         <div class="status-strip">
           <span id="flight-mode">PARKED</span>
@@ -91,6 +112,17 @@
           <div class="attitude-aircraft"></div>
           <div class="attitude-mark attitude-mark-top"></div>
           <div class="attitude-mark attitude-mark-bottom"></div>
+        </div>
+      </section>
+
+      <section class="hud hud-right" aria-label="Bank and Stall indicators">
+        <div class="indicator-block">
+          <span class="indicator-label">BANK</span>
+          <strong id="bank-angle">0°</strong>
+        </div>
+        <div class="indicator-block">
+          <span class="indicator-label">STALL</span>
+          <strong id="stall-indicator">OK</strong>
         </div>
       </section>
 
