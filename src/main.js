@@ -16,6 +16,7 @@ const hud = {
   flapsInput: document.querySelector("#flaps"),
   flapsOutput: document.querySelector("#flaps-output"),
   gearToggle: document.querySelector("#gear-toggle"),
+  speedbrakeToggle: document.querySelector("#speedbrake-toggle"),
   gearState: document.querySelector("#gear-state"),
   modelState: document.querySelector("#model-state"),
   missionState: document.querySelector("#mission-state"),
@@ -26,25 +27,32 @@ const hud = {
   controlButtons: [...document.querySelectorAll("[data-control]")],
 };
 
+// Real physics constants
 const METERS_TO_FEET = 3.28084;
 const MS_TO_KNOTS = 1.94384;
+const GRAVITY = 9.81; // m/s²
+const AIR_DENSITY = 1.225; // kg/m³ at sea level
+const WING_AREA = 465; // A350-900 wing area in m²
+const AIRCRAFT_MASS = 280000; // kg (A350-900)
 const CONTROL_PULSE_MS = 520;
 const GROUND_Y = 5.2;
 const CHECKPOINT_PASS_RADIUS = 68;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+// Stall physics
+const STALL_AOA = 0.16; // radians (~9.2°)
+const CL_MAX = 1.6; // Maximum lift coefficient
+const REFERENCE_STALL_SPEED = 60; // knots (base stall speed)
+
+// Engine performance
+const MAX_THRUST = 320000; // Newtons (both engines combined, A350-900)
+
 const clock = new THREE.Clock();
 const keys = new Set();
 const keyPulses = new Map();
 const heldControls = new Set();
 const controlPulses = new Map();
 const checkpoints = [];
-
-// Physics constants
-const STALL_SPEED_KTS = 60;
-const CRUISE_SPEED_KTS = 450;
-const MAX_PITCH_ANGLE = Math.PI / 3; // 60 degrees
-const MAX_ROLL_ANGLE = Math.PI / 2.5; // 72 degrees
-const GRAVITY = 9.81;
 
 // Warning system
 const warnings = {
@@ -58,26 +66,35 @@ const state = {
   flaps: 2,
   speedBrake: false,
   gearDown: true,
-  airspeed: 0,
-  verticalSpeed: 0,
-  heading: 0,
-  pitch: 0,
+  
+  // Aerodynamic state
+  airspeed: 0, // m/s
+  verticalSpeed: 0, // m/s
+  heading: 0, // radians
+  pitch: 0, // radians
   pitchInput: 0,
   rollInput: 0,
   yawInput: 0,
-  roll: 0,
-  yaw: 0,
+  roll: 0, // radians
+  yaw: 0, // radians
+  
+  // Position
+  position: new THREE.Vector3(0, GROUND_Y, -1140),
+  altitude: 0,
+  
+  // Flight state
   airborne: false,
+  
+  // Mission
   missionIndex: 0,
   missionPulse: 0,
-  position: new THREE.Vector3(0, GROUND_Y, -1140),
   
-  // Physics state
-  altitude: 0,
-  aoa: 0, // Angle of attack
-  fuelWeight: 100000, // kg
-  engineN1: [0, 0], // Engine RPM percentage
-  engineN2: [0, 0],
+  // Physics internals
+  angleOfAttack: 0,
+  dynamicPressure: 0,
+  thrust: 0,
+  drag: 0,
+  lift: 0,
 };
 
 const scene = new THREE.Scene();
@@ -109,7 +126,6 @@ const aircraftVisual = new THREE.Group();
 aircraft.add(aircraftVisual);
 let groundShadow;
 
-// Weather system initialization
 const weather = new WeatherSystem();
 const weatherUI = new WeatherUI(weather);
 
@@ -129,10 +145,8 @@ bindControls();
 createWarningSystem();
 resize();
 
-// Initialize weather UI
 weatherUI.init(document.querySelector(".sim-shell"));
 
-// Add weather CSS
 const weatherCssLink = document.createElement("link");
 weatherCssLink.rel = "stylesheet";
 weatherCssLink.href = "./src/weatherStyles.css";
@@ -243,13 +257,12 @@ function createMissionRings() {
     opacity: 0.5,
   });
 
-  // NYC mission route - flying around Manhattan landmarks
   const route = [
-    [0, 300, -2000],        // Battery Park
-    [-400, 350, -1000],     // Empire State Building
-    [200, 400, -3500],      // One World Trade Center
-    [-800, 300, -500],      // Chrysler Building
-    [600, 450, 1500],       // Central Park Tower
+    [0, 300, -2000],
+    [-400, 350, -1000],
+    [200, 400, -3500],
+    [-800, 300, -500],
+    [600, 450, 1500],
   ];
 
   route.forEach((position, index) => {
@@ -465,14 +478,13 @@ function bindControls() {
     keys.add(event.code);
     keyPulses.set(event.code, performance.now() + CONTROL_PULSE_MS);
     if (event.code === "KeyG" && !event.repeat) toggleGear();
-    if (event.code === "Space" && !event.repeat) toggleSpeedBrake();
+    if (event.code === "KeyB" && !event.repeat) toggleSpeedBrake();
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
       event.preventDefault();
     }
   });
   window.addEventListener("keyup", (event) => {
     keys.delete(event.code);
-    if (event.code === "Space") state.speedBrake = false;
   });
   window.addEventListener("resize", resize);
 
@@ -483,6 +495,7 @@ function bindControls() {
     state.flaps = Number(hud.flapsInput.value);
   });
   hud.gearToggle.addEventListener("click", toggleGear);
+  hud.speedbrakeToggle.addEventListener("click", toggleSpeedBrake);
 
   hud.controlButtons.forEach((button) => {
     const control = button.dataset.control;
@@ -517,13 +530,11 @@ function toggleGear() {
   const gear = aircraftVisual.getObjectByName("gear");
   if (gear) gear.visible = state.gearDown;
   hud.gearToggle.classList.toggle("is-up", !state.gearDown);
-  if (state.gearDown) {
-    triggerWarning("gear-deployed");
-  }
 }
 
 function toggleSpeedBrake() {
   state.speedBrake = !state.speedBrake;
+  hud.speedbrakeToggle.classList.toggle("active", state.speedBrake);
 }
 
 function resize() {
@@ -537,18 +548,7 @@ function resize() {
 function createWarningSystem() {
   const warningDiv = document.createElement("div");
   warningDiv.id = "warnings-container";
-  warningDiv.style.cssText = `
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 1000;
-    pointer-events: none;
-  `;
   document.body.appendChild(warningDiv);
-
   window.warningContainer = warningDiv;
 }
 
@@ -556,7 +556,6 @@ function triggerWarning(type) {
   const now = performance.now();
   const lastTime = warnings.lastTriggerTime.get(type) || 0;
 
-  // Only trigger if enough time has passed (cooldown)
   if (now - lastTime < warnings.cooldownMs) {
     return;
   }
@@ -570,8 +569,6 @@ function triggerWarning(type) {
     "overspeed": { text: "OVERSPEED", color: "#ff7b72", icon: "⚠️" },
     "terrain-warning": { text: "TERRAIN WARNING", color: "#ff7b72", icon: "🚨" },
     "configuration": { text: "CHECK CONFIGURATION", color: "#ffc857", icon: "⚠️" },
-    "landing-gear": { text: "LANDING GEAR", color: "#6ee7f9", icon: "ℹ️" },
-    "gear-deployed": { text: "GEAR DOWN", color: "#6ee7f9", icon: "✓" },
   };
 
   const msg = warningMessages[type] || { text: type.toUpperCase(), color: "#ffc857", icon: "⚠️" };
@@ -593,7 +590,6 @@ function triggerWarning(type) {
 
   window.warningContainer.appendChild(warning);
 
-  // Auto-remove warning after 3 seconds
   setTimeout(() => {
     warning.style.animation = "slideOut 0.3s ease-in";
     setTimeout(() => {
@@ -603,76 +599,107 @@ function triggerWarning(type) {
   }, 3000);
 }
 
+// ===== COMPREHENSIVE PHYSICS ENGINE =====
 function updateFlightModel(dt) {
-  const speedKts = state.airspeed * MS_TO_KNOTS;
   state.altitude = Math.max(0, state.position.y - GROUND_Y);
-  
-  // Calculate angle of attack
-  state.aoa = Math.abs(state.pitch);
 
-  // Engine spool up
-  state.engineN1[0] = THREE.MathUtils.lerp(state.engineN1[0], state.throttle * 100, 0.1);
-  state.engineN1[1] = THREE.MathUtils.lerp(state.engineN1[1], state.throttle * 100, 0.1);
+  // === Calculate Angle of Attack (AoA) ===
+  // AoA is pitch minus flight path angle
+  const speedMs = state.airspeed;
+  const flightPathAngle = state.verticalSpeed / Math.max(speedMs, 1);
+  state.angleOfAttack = state.pitch - flightPathAngle;
 
-  // Advanced drag calculation with flaps and gear
-  const baseDrag = 0.00072 * state.airspeed * state.airspeed;
-  const gearDrag = state.gearDown ? 0.44 : 0;
-  const flapsDrag = state.flaps * 0.16;
-  const speedBrakeDrag = state.speedBrake ? 2.5 : 0;
-  const aoaDrag = Math.pow(Math.sin(state.aoa), 2) * 0.15;
-  
-  const totalDrag = baseDrag + gearDrag + flapsDrag + speedBrakeDrag + aoaDrag;
+  // === Calculate Dynamic Pressure ===
+  state.dynamicPressure = 0.5 * AIR_DENSITY * speedMs * speedMs;
 
-  // Stall detection and recovery
-  const stallSpeed = STALL_SPEED_KTS + (state.flaps * 3);
-  const isStalled = speedKts < stallSpeed && state.airborne && state.aoa > 0.15;
+  // === Calculate Lift Coefficient (CL) ===
+  let cl = 0;
+  const speedKts = speedMs * MS_TO_KNOTS;
   
+  // Base CL from angle of attack (linear relationship)
+  const aoaDegrees = THREE.MathUtils.radToDeg(state.angleOfAttack);
+  cl = (aoaDegrees / 90) * CL_MAX;
+
+  // Add flap contribution (each notch increases CL)
+  cl += state.flaps * 0.18;
+
+  // Stall condition: when AoA exceeds critical angle OR CL drops below minimum
+  const isStalled = (Math.abs(state.angleOfAttack) > STALL_AOA || cl > CL_MAX) && state.airborne;
+
   if (isStalled) {
     triggerWarning("stall-warning");
-    // Stall causes descent
-    state.verticalSpeed = Math.min(state.verticalSpeed, -8);
+    // Heavy descent when stalled - realistic behavior
+    cl = 0.1; // Minimal lift
+    state.verticalSpeed = Math.min(state.verticalSpeed, -15); // 15 m/s descent (fast fall)
   }
 
-  // Thrust calculation - engines don't respond to pitch
-  const thrust = state.throttle * 15.2;
-  const brake = keys.has("Space") ? 8.5 : 0;
+  // Limit CL to maximum
+  cl = THREE.MathUtils.clamp(cl, -0.5, CL_MAX);
+
+  // === Calculate Lift ===
+  // L = 0.5 * rho * V² * S * CL
+  state.lift = state.dynamicPressure * WING_AREA * cl;
+
+  // === Calculate Drag ===
+  let dragForce = 0;
+
+  // Parasite drag (proportional to dynamic pressure and reference area)
+  const CD0 = 0.024; // Base drag coefficient
+  let cdParasite = CD0;
+
+  // Induced drag (from lift)
+  const e = 0.85; // Oswald efficiency factor
+  const AR = (61.7 * 61.7) / WING_AREA; // Aspect ratio
+  const cdInduced = (cl * cl) / (Math.PI * AR * e);
+
+  // Flap drag
+  const cdFlaps = state.flaps * 0.04;
+
+  // Gear drag
+  const cdGear = state.gearDown ? 0.08 : 0;
+
+  // Speed brake drag
+  const cdSpeedBrake = state.speedBrake ? 0.15 : 0;
+
+  const cdTotal = cdParasite + cdInduced + cdFlaps + cdGear + cdSpeedBrake;
+  dragForce = state.dynamicPressure * WING_AREA * cdTotal;
+
+  state.drag = dragForce;
+
+  // === Calculate Thrust ===
+  state.thrust = state.throttle * MAX_THRUST;
+
+  // === Net Force and Acceleration ===
+  // Forward acceleration (thrust - drag)
+  const forwardAccel = (state.thrust - dragForce) / AIRCRAFT_MASS;
   
-  state.airspeed = Math.max(0, state.airspeed + (thrust - totalDrag - brake) * dt);
+  // Vertical acceleration (lift - weight)
+  const weight = AIRCRAFT_MASS * GRAVITY;
+  const verticalAccel = (state.lift - weight) / AIRCRAFT_MASS;
 
-  // Check overspeed
-  if (speedKts > 530) {
-    triggerWarning("overspeed");
+  // === Update Velocities ===
+  state.airspeed = Math.max(0, state.airspeed + forwardAccel * dt);
+  state.verticalSpeed += verticalAccel * dt;
+
+  // === Takeoff condition ===
+  const rotationReady = speedKts > 80 && state.pitch > 0.05;
+  if (rotationReady && !state.airborne) {
+    state.airborne = true;
   }
 
-  // Lift calculation based on speed, AoA, and flaps
-  const liftCoeff = Math.sin(state.aoa) * 0.8 + (state.flaps * 0.15);
-  const lift = Math.max(0, (speedKts - stallSpeed + state.flaps * 12) / 86 * liftCoeff);
-  const pitchLift = Math.sin(state.pitch) * state.airspeed * 2.55;
-  const targetVerticalSpeed = (lift - 0.5) * 7.5 + pitchLift;
-  const response = state.airborne ? 1.7 : 0.9;
-  state.verticalSpeed = THREE.MathUtils.lerp(state.verticalSpeed, targetVerticalSpeed, response * dt);
-
-  // Forward movement
+  // === Position Update ===
   const forward = new THREE.Vector3(Math.sin(state.yaw), 0, Math.cos(state.yaw));
   state.position.addScaledVector(forward, state.airspeed * dt);
 
-  // Rotation readiness - no automatic thrust boost
-  const rotationReady = speedKts > 74 && state.pitch > 0.035;
-  if (rotationReady) {
-    state.airborne = true;
-    state.verticalSpeed = Math.max(state.verticalSpeed, 6.5);
-  }
-
-  // Vertical movement and landing logic
   if (state.airborne) {
     state.position.y += state.verticalSpeed * dt;
     
+    // Landing condition
     if (state.position.y <= GROUND_Y && state.verticalSpeed < 0) {
       state.position.y = GROUND_Y;
       state.verticalSpeed = 0;
       state.airborne = false;
       state.pitch = Math.max(state.pitch, 0);
-      triggerWarning("landing-gear");
     }
   } else {
     state.position.y = GROUND_Y;
@@ -681,12 +708,13 @@ function updateFlightModel(dt) {
     state.yaw += state.yawInput * 0.24 * dt;
   }
 
-  // Low altitude warning
-  if (state.airborne && state.altitude < 1000 && state.verticalSpeed < 0) {
+  // === Warnings ===
+  if (speedKts > 550) {
+    triggerWarning("overspeed");
+  }
+  if (state.airborne && state.altitude < 1000 && state.verticalSpeed < -0.5) {
     triggerWarning("low-altitude");
   }
-
-  // Configuration warning
   if (speedKts > 250 && state.flaps > 2) {
     triggerWarning("configuration");
   }
@@ -776,13 +804,13 @@ function updateInputs(dt) {
   state.yawInput =
     axisInput(["KeyA", "KeyQ"], ["KeyD", "KeyE"], "yaw-left", "yaw-right");
 
-  // Do NOT automatically increase throttle when pitching up
-  // This ensures proper manual control
-
   hud.throttleInput.value = Math.round(state.throttle * 100);
 
-  const targetPitch = THREE.MathUtils.clamp(state.pitchInput * 0.38, -MAX_PITCH_ANGLE, MAX_PITCH_ANGLE);
-  const targetRoll = THREE.MathUtils.clamp(state.rollInput * 0.58, -MAX_ROLL_ANGLE, MAX_ROLL_ANGLE);
+  const MAX_PITCH = Math.PI / 3; // 60°
+  const MAX_ROLL = (Math.PI / 2.5); // 72°
+
+  const targetPitch = THREE.MathUtils.clamp(state.pitchInput * 0.38, -MAX_PITCH, MAX_PITCH);
+  const targetRoll = THREE.MathUtils.clamp(state.rollInput * 0.58, -MAX_ROLL, MAX_ROLL);
   const targetYaw = state.yawInput * 0.5;
 
   state.pitch = THREE.MathUtils.lerp(state.pitch, targetPitch, 4.2 * dt);
@@ -813,7 +841,7 @@ function updateHud() {
   const altitudeFt = Math.max(0, Math.round(state.altitude * METERS_TO_FEET));
   const verticalFpm = Math.round(state.verticalSpeed * 196.85);
   const heading = ((THREE.MathUtils.radToDeg(state.yaw) % 360) + 360) % 360;
-  const bankAngle = THREE.MathUtils.radToDeg(state.roll);
+  const bankAngleDeg = Math.abs(Math.round(THREE.MathUtils.radToDeg(state.roll)));
 
   hud.speed.textContent = speedKts.toString().padStart(3, "0");
   hud.altitude.textContent = altitudeFt.toString();
@@ -822,25 +850,25 @@ function updateHud() {
   hud.throttleOutput.textContent = `${Math.round(state.throttle * 100)}%`;
   hud.flapsOutput.textContent = state.flaps.toString();
   hud.gearState.textContent = state.gearDown ? "GEAR DOWN" : "GEAR UP";
-  hud.bankAngle.textContent = `${Math.abs(Math.round(bankAngle))}°`;
+  hud.bankAngle.textContent = `${bankAngleDeg}°`;
 
-  // Update stall indicator
-  const stallSpeed = STALL_SPEED_KTS + (state.flaps * 3);
-  const stallMargin = speedKts - stallSpeed;
-  
-  if (stallMargin < 0) {
+  // Stall indicator
+  const stallSpeedKts = REFERENCE_STALL_SPEED + (state.flaps * 2);
+  const stallMargin = speedKts - stallSpeedKts;
+
+  if (stallMargin < -5) {
     hud.stallIndicator.textContent = "STALL";
     hud.stallIndicator.className = "critical";
   } else if (stallMargin < 10) {
-    hud.stallIndicator.textContent = "WARN";
+    hud.stallIndicator.textContent = `${stallMargin}KT`;
     hud.stallIndicator.className = "warn";
   } else {
-    hud.stallIndicator.textContent = `+${Math.round(stallMargin)}`;
+    hud.stallIndicator.textContent = `+${stallMargin}KT`;
     hud.stallIndicator.className = "";
   }
 
   if (state.airborne) {
-    hud.flightMode.textContent = state.verticalSpeed > 3 ? "CLIMB" : state.verticalSpeed < -1.5 ? "DESCENT" : "FLIGHT";
+    hud.flightMode.textContent = state.verticalSpeed > 1 ? "CLIMB" : state.verticalSpeed < -0.5 ? "DESCENT" : "FLIGHT";
   } else if (speedKts > 55) {
     hud.flightMode.textContent = "TAKEOFF";
   } else if (state.throttle > 0.02) {
@@ -876,7 +904,7 @@ function updateTelemetry() {
   canvas.dataset.altitudeMeters = state.altitude.toFixed(2);
   canvas.dataset.airspeed = state.airspeed.toFixed(2);
   canvas.dataset.missionIndex = String(state.missionIndex);
-  canvas.dataset.stallWarning = String(warnings.active.has("stall-warning"));
+  canvas.dataset.aoa = state.angleOfAttack.toFixed(3);
 }
 
 function animate() {
@@ -889,16 +917,15 @@ function animate() {
   updateCamera(dt);
   updateHud();
   updateTelemetry();
-  
-  // Update weather
+
   weather.updateWeather(dt);
   weatherUI.update();
-  
+
   renderer.render(scene, camera);
   updateRenderProbe();
 }
 
-// Add CSS animations for warnings
+// CSS animations
 const style = document.createElement("style");
 style.textContent = `
   @keyframes slideIn {
